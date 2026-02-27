@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>声学解剖热力图 — Vocal Anatomy Heatmap v3</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-primary: #0a0b0f;
+    --bg-secondary: #12141c;
+    --bg-card: #181a24;
+    --accent-warm: #ff6b4a;
+    --accent-cool: #4a9eff;
+    --accent-green: #4aff8b;
+    --accent-yellow: #ffb84a;
+    --accent-pink: #d4468a;
+    --text-primary: #e8e6e3;
+    --text-secondary: #9a98a9;
+    --text-dim: #65637a;
+    --border: rgba(255,255,255,0.06);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+    font-size: 15px;
+  }
+  body::before {
+    content:'';position:fixed;inset:0;
+    background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(74,158,255,0.04),transparent),
+               radial-gradient(ellipse 60% 50% at 80% 100%,rgba(255,107,74,0.03),transparent);
+    pointer-events:none;z-index:0;
+  }
+  .app { position:relative; z-index:1; }
+
+  /* ─── Header ─── */
+  header {
+    padding:18px 32px;display:flex;align-items:center;justify-content:space-between;
+    border-bottom:1px solid var(--border);backdrop-filter:blur(20px);
+    position:sticky;top:0;z-index:100;background:rgba(10,11,15,0.88);
+  }
+  .logo { display:flex;align-items:center;gap:12px; }
+  .logo-icon {
+    width:38px;height:38px;border-radius:10px;
+    background:linear-gradient(135deg,var(--accent-warm),var(--accent-cool));
+    display:flex;align-items:center;justify-content:center;font-size:18px;
+    box-shadow:0 4px 20px rgba(255,107,74,0.2);
+  }
+  .logo h1 {
+    font-family:'Playfair Display',serif;font-size:22px;font-weight:700;letter-spacing:-0.5px;
+    background:linear-gradient(135deg,#fff 40%,var(--accent-cool));
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  }
+  .logo .subtitle { font-size:12px;color:var(--text-dim);letter-spacing:2px;text-transform:uppercase;margin-top:1px; }
+  .header-controls { display:flex;align-items:center;gap:14px; }
+  .status-badge {
+    display:flex;align-items:center;gap:7px;padding:6px 14px;border-radius:18px;
+    background:rgba(255,255,255,0.04);border:1px solid var(--border);
+    font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--text-secondary);transition:all .3s;
+  }
+  .status-badge.active { border-color:rgba(74,255,139,0.3);color:var(--accent-green);background:rgba(74,255,139,0.05); }
+  .status-dot { width:7px;height:7px;border-radius:50%;background:var(--text-dim);transition:all .3s; }
+  .status-badge.active .status-dot { background:var(--accent-green);box-shadow:0 0 8px var(--accent-green);animation:pulse-dot 1.5s infinite; }
+  @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(1.3)} }
+  .btn-start {
+    display:flex;align-items:center;justify-content:center;gap:9px;padding:12px 28px;border:none;border-radius:11px;
+    font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;cursor:pointer;transition:all .3s;letter-spacing:.5px;
+    background:linear-gradient(135deg,var(--accent-warm),#ff8f4a);color:#fff;box-shadow:0 4px 20px rgba(255,107,74,0.3);
+  }
+  .btn-start:hover { transform:translateY(-2px);box-shadow:0 6px 30px rgba(255,107,74,0.4); }
+  .btn-start.recording { background:linear-gradient(135deg,#ff4a4a,var(--accent-warm));animation:btn-pulse 2s infinite; }
+  @keyframes btn-pulse { 0%,100%{box-shadow:0 4px 20px rgba(255,74,74,0.3)}50%{box-shadow:0 4px 30px rgba(255,74,74,0.5)} }
+  .btn-start svg { width:18px;height:18px; }
+
+  .voice-filter-badge {
+    display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:14px;
+    background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.15);
+    font-size:12px;color:var(--accent-cool);font-family:'JetBrains Mono',monospace;
+  }
+
+  /* ─── Main Layout ─── */
+  .main-content { display:grid;grid-template-columns:1fr 480px 1fr;gap:0;min-height:calc(100vh - 66px); }
+
+  /* ─── Panels ─── */
+  .panel-left,.panel-right {
+    padding:24px 22px;display:flex;flex-direction:column;gap:14px;
+    overflow-y:auto;max-height:calc(100vh - 66px);
+  }
+  .panel-right { gap:12px; }
+  .panel-title {
+    font-size:12px;letter-spacing:2.5px;text-transform:uppercase;color:var(--text-dim);
+    margin-bottom:2px;font-weight:500;
+  }
+  .metric-card {
+    background:var(--bg-card);border:1px solid var(--border);border-radius:12px;
+    padding:16px 18px;transition:all .3s;flex-shrink:0;
+  }
+  .metric-card:hover { border-color:rgba(255,255,255,0.1); }
+  .metric-label {
+    font-size:12px;color:var(--text-secondary);letter-spacing:0.8px;text-transform:uppercase;
+    margin-bottom:8px;display:flex;align-items:center;gap:6px;font-weight:500;
+  }
+  .metric-label .dot { width:6px;height:6px;border-radius:50%; }
+  .metric-value {
+    font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:400;letter-spacing:-1px;margin-bottom:4px;
+  }
+  .metric-unit { font-size:15px;color:var(--text-secondary);font-weight:300; }
+  .metric-bar-container { height:4px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;margin-top:10px; }
+  .metric-bar { height:100%;border-radius:2px;transition:width .15s ease-out;width:0%; }
+
+  .info-grid { display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px; }
+  .info-item { background:rgba(255,255,255,0.02);border-radius:8px;padding:10px 12px;border:1px solid var(--border); }
+  .info-item-label { font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;font-weight:500; }
+  .info-item-value { font-family:'JetBrains Mono',monospace;font-size:16px;margin-top:3px; }
+
+  /* ─── Center Anatomy ─── */
+  .anatomy-container {
+    position:relative;display:flex;align-items:center;justify-content:center;
+    border-left:1px solid var(--border);border-right:1px solid var(--border);
+    background:radial-gradient(ellipse at 50% 45%,rgba(74,158,255,0.02),transparent 70%);overflow:hidden;
+  }
+  .anatomy-svg-wrap { width:460px;height:700px;position:relative; }
+  .anatomy-svg-wrap svg { width:100%;height:100%; }
+  .anatomy-region { transition:fill .12s ease-out,filter .12s ease-out;cursor:pointer; }
+  .anatomy-region:hover { filter:brightness(1.3); }
+  .heat-legend { display:flex;align-items:center;gap:8px; }
+  .heat-gradient-bar { flex:1;height:8px;border-radius:4px;background:linear-gradient(90deg,#1a1a3e,#2d1b69,#6b2fa0,#d4468a,#ff6b4a,#ffb84a,#fff7a0); }
+  .heat-label { font-size:11px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;letter-spacing:1px; }
+
+  /* ─── Tooltip ─── */
+  .tooltip {
+    position:fixed;padding:12px 16px;background:rgba(24,26,36,0.95);border:1px solid rgba(255,255,255,0.12);
+    border-radius:10px;font-size:14px;pointer-events:none;opacity:0;transition:opacity .2s;z-index:200;
+    backdrop-filter:blur(10px);max-width:240px;box-shadow:0 8px 30px rgba(0,0,0,0.4);
+  }
+  .tooltip.visible { opacity:1; }
+  .tooltip-title { font-weight:600;margin-bottom:4px;color:#fff;font-size:15px; }
+  .tooltip-value { font-family:'JetBrains Mono',monospace;color:var(--accent-warm);font-size:16px; }
+  .tooltip-desc { color:var(--text-secondary);font-size:13px;margin-top:4px;line-height:1.55; }
+
+  /* ─── Spectrum ─── */
+  .spectrum-card {
+    background:var(--bg-card);border:1px solid var(--border);border-radius:12px;
+    padding:16px 18px;flex-shrink:0;
+  }
+  .spectrum-canvas { width:100%;height:110px;border-radius:7px;margin-top:10px; }
+  .waveform-canvas { width:100%;height:65px;border-radius:7px;margin-top:10px; }
+
+  /* ─── Speaker Cards ─── */
+  .speaker-section { display:flex;flex-direction:column;gap:10px; }
+  .speaker-card {
+    background:var(--bg-card);border:1px solid var(--border);border-radius:12px;
+    padding:16px 18px;transition:all .35s;position:relative;overflow:hidden;
+  }
+  .speaker-card.speaking {
+    border-color:rgba(74,255,139,0.35);box-shadow:0 0 18px rgba(74,255,139,0.08);
+  }
+  .speaker-card.speaking::before {
+    content:'';position:absolute;top:0;left:0;width:3px;height:100%;
+    background:var(--accent-green);border-radius:0 2px 2px 0;
+  }
+  .speaker-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:6px; }
+  .speaker-name { font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px; }
+  .speaker-dot { width:9px;height:9px;border-radius:50%;transition:all .3s; }
+  .speaker-dot.active { box-shadow:0 0 8px currentColor;animation:pulse-dot 1.5s infinite; }
+  .speaker-voice-type { font-size:13px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace; }
+  .speaker-voice-desc { font-size:13px;color:var(--text-dim);margin-bottom:10px;line-height:1.5; }
+  .speaker-ranking { display:flex;flex-direction:column;gap:5px; }
+  .rank-row { display:flex;align-items:center;gap:8px;font-size:13px;height:22px; }
+  .rank-num { width:16px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-dim);text-align:right;flex-shrink:0; }
+  .rank-label { flex:1;color:var(--text-secondary);white-space:nowrap; }
+  .rank-bar-bg { width:65px;height:4px;background:rgba(255,255,255,0.05);border-radius:2px;overflow:hidden;flex-shrink:0; }
+  .rank-bar { height:100%;border-radius:2px;transition:width .3s; }
+  .rank-pct { width:34px;font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;flex-shrink:0; }
+
+  /* Diagnosis badges */
+  .diag-section { margin-top:10px;padding-top:10px;border-top:1px solid var(--border); }
+  .diag-row {
+    display:flex;align-items:flex-start;gap:8px;margin-bottom:7px;font-size:13px;line-height:1.55;
+  }
+  .diag-icon {
+    flex-shrink:0;width:20px;height:20px;border-radius:6px;display:flex;align-items:center;
+    justify-content:center;font-size:11px;margin-top:1px;
+  }
+  .diag-icon.good { background:rgba(74,255,139,0.12);color:var(--accent-green); }
+  .diag-icon.warn { background:rgba(255,184,74,0.12);color:var(--accent-yellow); }
+  .diag-icon.issue { background:rgba(255,74,74,0.12);color:#ff6b6b; }
+  .diag-text { color:var(--text-secondary); }
+  .diag-text strong { color:var(--text-primary);font-weight:500; }
+
+  /* ─── Realtime Ranking Card ─── */
+  .realtime-rank-card {
+    background:var(--bg-card);border:1px solid var(--border);border-radius:12px;
+    padding:16px 18px;flex-shrink:0;
+  }
+  .rt-rank-row { display:flex;align-items:center;gap:8px;font-size:13px;height:21px;margin-bottom:3px; }
+
+  /* ─── Onboard ─── */
+  .onboard-overlay {
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:rgba(10,11,15,0.7);backdrop-filter:blur(8px);z-index:50;transition:opacity .5s;
+  }
+  .onboard-overlay.hidden { opacity:0;pointer-events:none; }
+  .onboard-text { font-size:16px;color:var(--text-secondary);margin-bottom:20px;text-align:center;line-height:1.8; }
+  .onboard-text strong { color:#fff;font-weight:600; }
+  .mic-icon-big {
+    width:60px;height:60px;border-radius:50%;background:rgba(255,107,74,0.1);
+    border:2px solid rgba(255,107,74,0.2);display:flex;align-items:center;justify-content:center;
+    margin-bottom:16px;animation:float 3s ease-in-out infinite;
+  }
+  @keyframes float { 0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)} }
+  .mic-icon-big svg { width:26px;height:26px;color:var(--accent-warm); }
+
+  /* ─── Scrollbar ─── */
+  .panel-right::-webkit-scrollbar,.panel-left::-webkit-scrollbar { width:4px; }
+  .panel-right::-webkit-scrollbar-track,.panel-left::-webkit-scrollbar-track { background:transparent; }
+  .panel-right::-webkit-scrollbar-thumb,.panel-left::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.08);border-radius:2px; }
+
+  @media(max-width:1200px){
+    .main-content{grid-template-columns:1fr;grid-template-rows:auto auto auto;}
+    .anatomy-container{border-left:none;border-right:none;border-top:1px solid var(--border);border-bottom:1px solid var(--border);min-height:580px;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🎙</div>
+      <div>
+        <h1>声学解剖热力图</h1>
+        <div class="subtitle">声乐诊断与训练</div>
+      </div>
+    </div>
+    <div class="header-controls">
+      <div class="voice-filter-badge">🛡 人声过滤</div>
+      <div class="status-badge" id="statusBadge">
+        <span class="status-dot"></span>
+        <span id="statusText">等待启动</span>
+      </div>
+      <button class="btn-start" id="btnStart" onclick="toggleRecording()">
+        <svg id="btnIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+        <span id="btnText">开始分析</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="main-content">
+    <!-- ═══ Left Panel ═══ -->
+    <div class="panel-left">
+      <div class="panel-title">实时声学参数</div>
+      <div class="metric-card">
+        <div class="metric-label"><span class="dot" style="background:var(--accent-warm)"></span> 基频 F0</div>
+        <div class="metric-value" id="metricF0">—<span class="metric-unit"> Hz</span></div>
+        <div class="metric-bar-container"><div class="metric-bar" id="barF0" style="background:linear-gradient(90deg,var(--accent-warm),#ffb84a)"></div></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label"><span class="dot" style="background:var(--accent-cool)"></span> 响度 SPL</div>
+        <div class="metric-value" id="metricSPL">—<span class="metric-unit"> dB</span></div>
+        <div class="metric-bar-container"><div class="metric-bar" id="barSPL" style="background:linear-gradient(90deg,var(--accent-cool),#4affce)"></div></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label"><span class="dot" style="background:var(--accent-green)"></span> 声道共鸣</div>
+        <div class="metric-value" id="metricResonance">—<span class="metric-unit"> %</span></div>
+        <div class="metric-bar-container"><div class="metric-bar" id="barResonance" style="background:linear-gradient(90deg,var(--accent-green),#a0ff4a)"></div></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label"><span class="dot" style="background:var(--accent-pink)"></span> 气息流量</div>
+        <div class="metric-value" id="metricAirflow">—<span class="metric-unit"> %</span></div>
+        <div class="metric-bar-container"><div class="metric-bar" id="barAirflow" style="background:linear-gradient(90deg,#d4468a,#ff6baa)"></div></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label"><span class="dot" style="background:var(--accent-yellow)"></span> 共振峰分布</div>
+        <div class="info-grid">
+          <div class="info-item"><div class="info-item-label">F1</div><div class="info-item-value" id="f1Val" style="color:#ffb84a">— Hz</div></div>
+          <div class="info-item"><div class="info-item-label">F2</div><div class="info-item-value" id="f2Val" style="color:#ff8f4a">— Hz</div></div>
+          <div class="info-item"><div class="info-item-label">F3</div><div class="info-item-value" id="f3Val" style="color:#d4468a">— Hz</div></div>
+          <div class="info-item"><div class="info-item-label">F4</div><div class="info-item-value" id="f4Val" style="color:#a04aff">— Hz</div></div>
+        </div>
+      </div>
+
+      <!-- Realtime ranking 2Hz -->
+      <div class="realtime-rank-card">
+        <div class="metric-label"><span class="dot" style="background:#ff6b4a"></span> 实时参与度 <span style="font-size:11px;color:var(--text-dim);margin-left:auto;">2 Hz 刷新</span></div>
+        <div id="realtimeRanking" style="margin-top:8px;"><div style="color:var(--text-dim);font-size:14px;font-style:italic;">等待声音输入...</div></div>
+      </div>
+    </div>
+
+    <!-- ═══ Center Anatomy ═══ -->
+    <div class="anatomy-container">
+      <div class="onboard-overlay" id="onboardOverlay">
+        <div class="mic-icon-big">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </div>
+        <div class="onboard-text">点击右上角 <strong>「开始分析」</strong> 按钮<br>授权麦克风后发声即可看到实时热力图<br><span style="font-size:14px;color:var(--text-dim);margin-top:8px;display:inline-block;">🛡 人声过滤 · 多人识别 · 声乐诊断</span></div>
+      </div>
+      <div class="anatomy-svg-wrap">
+        <svg viewBox="0 0 480 700" xmlns="http://www.w3.org/2000/svg" id="anatomySvg">
+          <defs>
+            <filter id="glow"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <filter id="glowStrong"><feGaussianBlur stdDeviation="10" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <linearGradient id="bodyOutline" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="rgba(255,255,255,0.15)"/><stop offset="100%" stop-color="rgba(255,255,255,0.05)"/>
+            </linearGradient>
+          </defs>
+          <g opacity="0.04" stroke="#fff" stroke-width="0.5">
+            <line x1="240" y1="0" x2="240" y2="700"/><line x1="0" y1="175" x2="480" y2="175"/>
+            <line x1="0" y1="350" x2="480" y2="350"/><line x1="0" y1="525" x2="480" y2="525"/>
+          </g>
+          <g id="bodyOutlineGroup">
+            <path d="M200,28 C200,28 168,33 155,68 C142,103 140,138 145,163 C148,178 155,188 165,193 L165,208 C155,213 148,223 145,238 C142,253 140,268 145,283 L145,288 C140,293 138,303 140,313 C142,323 150,328 160,328 L165,328 L170,348 C172,358 178,373 190,388 L200,398" fill="none" stroke="url(#bodyOutline)" stroke-width="1.5"/>
+            <path d="M310,28 C310,28 342,33 350,73 C358,113 355,143 345,168 C340,180 335,186 330,190 L328,198 C332,208 335,223 333,243 C331,258 328,273 325,283 L323,293 C328,298 330,308 330,318 C330,328 325,333 318,333 L310,333 L305,353 C302,368 296,383 288,398 L280,408" fill="none" stroke="url(#bodyOutline)" stroke-width="1.5"/>
+            <path d="M200,398 C190,418 175,448 165,488 C155,528 150,558 150,588 L150,700" fill="none" stroke="url(#bodyOutline)" stroke-width="1.5"/>
+            <path d="M280,408 C290,428 305,458 315,498 C325,538 330,568 330,598 L330,700" fill="none" stroke="url(#bodyOutline)" stroke-width="1.5"/>
+          </g>
+
+          <!-- Regions -->
+          <path class="anatomy-region" id="region-head" d="M200,43 C200,43 185,48 178,68 C172,86 175,108 185,118 C195,128 215,133 240,128 C265,123 285,118 295,106 C305,94 308,76 302,60 C296,44 280,38 270,36 C260,34 240,36 225,38 Z" fill="#1a1a3e" data-name="头腔共鸣区" data-desc="高频共振区域，影响声音的明亮度和穿透力" filter="url(#glow)"/>
+          <path class="anatomy-region" id="region-nasal" d="M205,128 C205,128 198,138 195,153 C192,168 195,183 200,188 C205,193 220,198 240,196 C260,194 272,188 276,180 C280,172 282,156 278,143 C274,130 265,126 250,125 C235,124 215,125 205,128 Z" fill="#1a1a3e" data-name="鼻腔共鸣" data-desc="鼻腔共振增强中高频泛音，影响鼻音色彩" filter="url(#glow)"/>
+          <path class="anatomy-region" id="region-oral" d="M190,193 C190,193 185,208 183,228 C181,248 185,266 195,273 C205,280 225,283 245,281 C265,279 280,273 288,263 C296,253 298,233 295,216 C292,199 285,193 275,190 C265,187 245,188 230,189 C215,190 200,191 190,193 Z" fill="#1a1a3e" data-name="口腔共鸣" data-desc="主要共鸣腔体，舌位和唇形塑造元音特征" filter="url(#glow)"/>
+          <path class="anatomy-region" id="region-softpalate" d="M255,193 C255,193 268,198 278,213 C288,228 290,238 285,248 C280,258 270,263 260,256 C250,249 248,233 250,218 C252,203 255,193 255,193 Z" fill="#1a1a3e" data-name="软腭" data-desc="控制鼻腔与口腔气流分配，影响共鸣通道" filter="url(#glow)"/>
+          <path class="anatomy-region" id="region-tongue" d="M200,248 C200,248 210,258 225,266 C240,274 260,273 275,266 C275,266 268,283 255,290 C242,297 225,298 212,293 C199,288 193,276 195,263 Z" fill="#1a1a3e" data-name="舌根与舌体" data-desc="调节口腔容积，塑造共振峰频率F1/F2" filter="url(#glow)"/>
+          <path class="anatomy-region" id="region-pharynx" d="M220,288 C220,288 210,303 208,323 C206,343 210,358 218,368 C226,378 240,381 255,378 C270,375 278,366 282,353 C286,340 284,320 280,303 C276,286 268,283 255,288 C242,293 228,291 220,288 Z" fill="#1a1a3e" data-name="咽腔" data-desc="连接口腔与喉部的共鸣通道，低频增强区" filter="url(#glow)"/>
+          <path class="anatomy-region" id="region-epiglottis" d="M232,363 C232,363 228,373 230,383 C232,393 240,398 248,396 C256,394 260,386 258,376 C256,366 250,360 242,360 Z" fill="#1a1a3e" data-name="会厌" data-desc="保护气道，在吞咽时关闭喉口" filter="url(#glow)"/>
+          <path class="anatomy-region" id="region-vocalcords" d="M210,393 C210,393 205,408 205,428 C205,448 212,463 225,470 C238,477 258,476 270,468 C282,460 288,443 286,426 C284,409 278,398 268,393 C258,388 240,386 228,388 Z" fill="#1a1a3e" data-name="声带 (声门)" data-desc="发声核心！声带振动产生基频" filter="url(#glowStrong)"/>
+          <g id="vocalCordDetail" opacity="0.3">
+            <line x1="222" y1="426" x2="258" y2="426" stroke="#ff6b4a" stroke-width="2" stroke-linecap="round"/>
+            <line x1="225" y1="433" x2="255" y2="433" stroke="#ff6b4a" stroke-width="1.5" stroke-linecap="round"/>
+            <ellipse cx="240" cy="429" rx="20" ry="6" fill="none" stroke="#ff6b4a" stroke-width="0.8" opacity="0.5"/>
+          </g>
+          <path class="anatomy-region" id="region-thyroid" d="M198,418 C198,418 193,438 195,456 C197,474 205,483 210,486 L210,486 C208,478 206,458 208,443 C210,428 215,418 215,413 Z" fill="#1a1a3e" data-name="甲状软骨" data-desc="喉部支撑框架（喉结）" filter="url(#glow)"/>
+          <path class="anatomy-region" id="region-cricothyroid" d="M215,468 C215,468 210,478 212,490 C214,502 222,508 235,510 C248,512 260,508 266,500 C272,492 272,480 268,473 C264,466 255,466 245,468 Z" fill="#1a1a3e" data-name="环甲肌" data-desc="拉伸声带调节音高，高音关键肌肉" filter="url(#glow)"/>
+          <path class="anatomy-region" id="region-trachea" d="M228,508 C228,508 225,525 225,545 C225,565 228,580 232,588 C236,596 244,598 252,594 C260,590 263,578 263,558 C263,538 260,522 258,512 C256,503 248,503 238,506 Z" fill="#1a1a3e" data-name="气管" data-desc="气流传导管道" filter="url(#glow)"/>
+          <g opacity="0.15" stroke="#4a9eff" stroke-width="0.8">
+            <path d="M230,520 Q245,516 258,520" fill="none"/><path d="M229,533 Q245,529 259,533" fill="none"/>
+            <path d="M228,546 Q245,542 260,546" fill="none"/><path d="M228,559 Q245,555 260,559" fill="none"/>
+            <path d="M229,572 Q245,568 259,572" fill="none"/>
+          </g>
+          <path class="anatomy-region" id="region-chest" d="M165,545 C165,545 155,565 150,590 C145,615 148,635 155,648 L155,655 L325,655 L328,648 C335,630 338,610 333,585 C328,560 318,545 308,538 C298,531 275,525 245,523 C215,521 190,527 175,535 Z" fill="#1a1a3e" data-name="胸腔共鸣" data-desc="低频共振，赋予声音厚度和温暖感" filter="url(#glow)"/>
+          <path class="anatomy-region" id="region-diaphragm" d="M158,638 C158,638 185,622 215,618 C245,614 275,616 305,622 C320,626 330,633 335,640 L335,650 C320,642 290,634 260,631 C230,628 200,629 175,636 L158,643 Z" fill="#1a1a3e" data-name="膈肌" data-desc="呼吸动力核心，控制气流稳定性" filter="url(#glow)"/>
+          <path class="anatomy-region" id="region-dantian" d="M195,658 C195,658 190,668 192,682 C194,696 210,705 240,705 C270,705 286,696 288,682 C290,668 285,658 280,655 C270,650 255,648 240,648 C225,648 210,650 200,654 Z" fill="#1a1a3e" data-name="丹田" data-desc="腹部深层核心，气息动力根基" filter="url(#glow)"/>
+          <g id="dantianDetail" opacity="0.2">
+            <circle cx="240" cy="678" r="12" fill="none" stroke="#ffb84a" stroke-width="0.8"/>
+            <circle cx="240" cy="678" r="5" fill="none" stroke="#ffb84a" stroke-width="0.6"/>
+          </g>
+
+          <!-- Labels -->
+          <g font-family="'JetBrains Mono',monospace" font-size="9.5" fill="rgba(255,255,255,0.25)" text-anchor="end">
+            <text x="168" y="83">头腔</text><text x="168" y="163">鼻腔</text><text x="161" y="238">口腔</text>
+            <text x="188" y="333">咽腔</text><text x="186" y="433">声带</text><text x="198" y="493">环甲肌</text>
+            <text x="208" y="548">气管</text><text x="148" y="598">胸腔</text><text x="153" y="643">膈肌</text>
+            <text x="183" y="683">丹田</text>
+          </g>
+          <g stroke="rgba(255,255,255,0.06)" stroke-width="0.7" stroke-dasharray="3,3">
+            <line x1="171" y1="80" x2="200" y2="80"/><line x1="171" y1="160" x2="198" y2="160"/>
+            <line x1="164" y1="235" x2="190" y2="235"/><line x1="191" y1="330" x2="220" y2="330"/>
+            <line x1="189" y1="430" x2="215" y2="430"/><line x1="211" y1="548" x2="228" y2="548"/>
+            <line x1="186" y1="680" x2="198" y2="680"/>
+          </g>
+        </svg>
+      </div>
+      <div style="position:absolute;bottom:18px;left:50%;transform:translateX(-50%);width:280px">
+        <div class="heat-legend"><span class="heat-label">低</span><div class="heat-gradient-bar"></div><span class="heat-label">高</span></div>
+      </div>
+    </div>
+
+    <!-- ═══ Right Panel ═══ -->
+    <div class="panel-right">
+      <div class="panel-title">频谱分析</div>
+      <div class="spectrum-card">
+        <div class="metric-label"><span class="dot" style="background:var(--accent-cool)"></span> 频谱分布</div>
+        <canvas class="spectrum-canvas" id="spectrumCanvas"></canvas>
+      </div>
+      <div class="spectrum-card">
+        <div class="metric-label"><span class="dot" style="background:var(--accent-warm)"></span> 实时波形</div>
+        <canvas class="waveform-canvas" id="waveformCanvas"></canvas>
+      </div>
+      <div class="panel-title" style="margin-top:6px;">说话人识别 · 声乐诊断</div>
+      <div class="speaker-section" id="speakerSection">
+        <div class="speaker-card" style="border:1px dashed rgba(255,255,255,0.08);">
+          <div style="color:var(--text-dim);font-size:14px;text-align:center;padding:14px 0;font-style:italic;">等待检测说话人...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip">
+  <div class="tooltip-title" id="tooltipTitle"></div>
+  <div class="tooltip-value" id="tooltipValue"></div>
+  <div class="tooltip-desc" id="tooltipDesc"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+//  AUDIO ENGINE v3 — Voice-filtered, Diagnosis
+// ═══════════════════════════════════════════════════
+
+let audioCtx, analyser, analyserWave, source, stream;
+let isRecording = false;
+let dataArray, waveDataArray, freqBinCount;
+let animFrameId;
+
+const regions = {
+  'region-head':        { label:'头腔共鸣区', freqs:[[3000,5000,0.6],[5000,8000,0.9],[8000,12000,0.5]], weight:0.8 },
+  'region-nasal':       { label:'鼻腔共鸣',   freqs:[[2000,3000,0.7],[3000,4500,1.0],[250,450,0.4]], weight:0.9 },
+  'region-oral':        { label:'口腔共鸣',    freqs:[[500,1500,0.8],[1500,3000,1.0],[300,500,0.4]], weight:1.0 },
+  'region-softpalate':  { label:'软腭',       freqs:[[1500,2500,0.8],[2500,3500,0.6]], weight:0.65 },
+  'region-tongue':      { label:'舌根与舌体',  freqs:[[800,1800,1.0],[1800,2500,0.7]], weight:0.8 },
+  'region-pharynx':     { label:'咽腔',       freqs:[[300,800,0.9],[800,1500,0.7]], weight:0.9 },
+  'region-epiglottis':  { label:'会厌',       freqs:[[400,800,0.6],[800,1200,0.5]], weight:0.45 },
+  'region-vocalcords':  { label:'声带',       freqs:[[80,300,1.0],[300,600,0.7],[600,1000,0.3]], weight:1.3 },
+  'region-thyroid':     { label:'甲状软骨',    freqs:[[100,400,0.7],[400,800,0.4]], weight:0.55 },
+  'region-cricothyroid':{ label:'环甲肌',     freqs:[[150,350,0.5],[350,600,0.8]], weight:0.7 },
+  'region-trachea':     { label:'气管',       freqs:[[60,200,0.7],[200,400,0.5]], weight:0.6 },
+  'region-chest':       { label:'胸腔共鸣',    freqs:[[50,150,1.0],[150,250,0.6]], weight:0.95 },
+  'region-diaphragm':   { label:'膈肌',       freqs:[[20,80,0.7],[80,150,0.5]], weight:0.75 },
+  'region-dantian':     { label:'丹田',       freqs:[[20,60,0.8],[60,120,0.6]], weight:0.7 },
+};
+const regionIds = Object.keys(regions);
+
+function intensityToColor(t) {
+  t = Math.max(0, Math.min(1, t));
+  const stops=[[26,26,62],[45,27,105],[107,47,160],[212,70,138],[255,107,74],[255,184,74],[255,247,160]];
+  const pos=[0,0.15,0.3,0.45,0.62,0.8,1.0];
+  let i=0; for(;i<pos.length-1;i++) if(t<=pos[i+1]) break;
+  const lt=(t-pos[i])/(pos[i+1]-pos[i]);
+  const c0=stops[i],c1=stops[Math.min(i+1,stops.length-1)];
+  return `rgb(${Math.round(c0[0]+(c1[0]-c0[0])*lt)},${Math.round(c0[1]+(c1[1]-c0[1])*lt)},${Math.round(c0[2]+(c1[2]-c0[2])*lt)})`;
+}
+
+function getMultiBandEnergy(dataArray, sampleRate, fftSize, bands) {
+  const binSize = sampleRate / fftSize;
+  let total=0,wTotal=0;
+  for (const [low,high,w] of bands) {
+    const lo=Math.max(1,Math.floor(low/binSize)), hi=Math.min(dataArray.length-1,Math.ceil(high/binSize));
+    if(lo>=hi) continue;
+    let sum=0,cnt=0;
+    for(let i=lo;i<=hi;i++){sum+=dataArray[i];cnt++;}
+    total+=(cnt>0?sum/cnt/255:0)*w; wTotal+=w;
+  }
+  return wTotal>0?total/wTotal:0;
+}
+
+function isVoice(dataArray, waveData, sampleRate, fftSize) {
+  let rms=0;
+  for(let i=0;i<waveData.length;i++){const v=(waveData[i]-128)/128;rms+=v*v;}
+  rms=Math.sqrt(rms/waveData.length);
+  if(rms<0.018) return false;
+  const binSize=sampleRate/fftSize;
+  let wSum=0,tAmp=0;
+  for(let i=1;i<dataArray.length;i++){wSum+=dataArray[i]*i*binSize;tAmp+=dataArray[i];}
+  const centroid=tAmp>0?wSum/tAmp:0;
+  if(centroid<150||centroid>5000) return false;
+  const vLo=Math.floor(85/binSize),vHi=Math.ceil(4000/binSize);
+  let vE=0,aE=0;
+  for(let i=1;i<dataArray.length;i++){aE+=dataArray[i];if(i>=vLo&&i<=vHi)vE+=dataArray[i];}
+  if(aE>0&&vE/aE<0.55) return false;
+  const f0=estimateF0(waveData,sampleRate);
+  if(f0<65||f0>600) return false;
+  return true;
+}
+
+function estimateF0(waveData, sampleRate) {
+  const SIZE=waveData.length;
+  const buf=new Float32Array(SIZE);
+  for(let i=0;i<SIZE;i++) buf[i]=(waveData[i]-128)/128;
+  let rms=0; for(let i=0;i<SIZE;i++) rms+=buf[i]*buf[i];
+  rms=Math.sqrt(rms/SIZE);
+  if(rms<0.012) return 0;
+  const minL=Math.floor(sampleRate/600), maxL=Math.min(Math.floor(sampleRate/65),Math.floor(SIZE/2));
+  let bC=-1,bL=-1;
+  for(let lag=minL;lag<maxL;lag++){let c=0;for(let i=0;i<SIZE-lag;i++)c+=buf[i]*buf[i+lag];c/=(SIZE-lag);if(c>bC){bC=c;bL=lag;}}
+  return bL>0&&bC>0.008?sampleRate/bL:0;
+}
+
+function findFormants(dataArray, sampleRate, fftSize) {
+  const binSize=sampleRate/fftSize;
+  const sm=new Float32Array(dataArray.length);
+  for(let i=3;i<dataArray.length-3;i++) sm[i]=(dataArray[i-3]+dataArray[i-2]*2+dataArray[i-1]*3+dataArray[i]*4+dataArray[i+1]*3+dataArray[i+2]*2+dataArray[i+3])/18;
+  const fmts=[];
+  const lo=Math.floor(200/binSize),hi=Math.min(sm.length-2,Math.ceil(5500/binSize));
+  for(let i=lo+1;i<hi;i++) if(sm[i]>sm[i-1]&&sm[i]>sm[i+1]&&sm[i]>25) fmts.push({freq:Math.round(i*binSize),amp:sm[i]});
+  fmts.sort((a,b)=>b.amp-a.amp);
+  return fmts.slice(0,6);
+}
+
+// ══════════════════════════════════
+//  Speaker Tracking
+// ══════════════════════════════════
+
+const SPEAKER_COLORS=['#4aff8b','#4a9eff','#ffb84a','#d4468a','#a04aff','#ff6b4a'];
+const SPEAKER_NAMES=['说话人 A','说话人 B','说话人 C','说话人 D','说话人 E','说话人 F'];
+
+let speakers=[], nextSpeakerId=0;
+const SP_F0_THRESH=28, SP_TIMEOUT=180000, CUM_DECAY=0.9985;
+
+function findOrCreateSpeaker(f0) {
+  if(f0<65) return null;
+  const now=Date.now();
+  let best=null,bDist=Infinity;
+  for(const sp of speakers){
+    if(now-sp.lastActive>SP_TIMEOUT) continue;
+    const d=Math.abs(sp.f0Avg-f0);
+    if(d<SP_F0_THRESH&&d<bDist){bDist=d;best=sp;}
+  }
+  if(best){
+    best.f0Hist.push(f0);
+    if(best.f0Hist.length>300) best.f0Hist.shift();
+    best.f0Avg=best.f0Hist.reduce((a,b)=>a+b,0)/best.f0Hist.length;
+    best.lastActive=now; best.isSpeaking=true; best.sampleCount++;
+    return best;
+  }
+  if(speakers.length>=6) return speakers[0];
+  const sp={
+    id:nextSpeakerId++,
+    color:SPEAKER_COLORS[speakers.length%SPEAKER_COLORS.length],
+    name:SPEAKER_NAMES[speakers.length%SPEAKER_NAMES.length],
+    f0Avg:f0, f0Hist:[f0],
+    cumIntensities:{}, lastActive:now, isSpeaking:true, sampleCount:1,
+    voiceType:'—', voiceDesc:'',
+  };
+  regionIds.forEach(id=>sp.cumIntensities[id]=0);
+  speakers.push(sp);
+  return sp;
+}
+
+// ══════════════════════════════════════
+//  Vocal Diagnosis Engine
+// ══════════════════════════════════════
+
+function diagnose(sp) {
+  const cum = sp.cumIntensities;
+  let maxC = 0.001;
+  regionIds.forEach(id => { if(cum[id]>maxC) maxC=cum[id]; });
+  const norm = {};
+  regionIds.forEach(id => norm[id] = cum[id] / maxC);
+
+  const tips = []; // { type:'good'|'warn'|'issue', text }
+
+  // — Vocal cord usage
+  if (norm['region-vocalcords'] > 0.85) {
+    tips.push({ type:'good', text:'<strong>声带</strong>参与度高，发声基础扎实' });
+  } else if (norm['region-vocalcords'] < 0.4 && sp.sampleCount > 30) {
+    tips.push({ type:'issue', text:'<strong>声带</strong>参与不足，注意喉部放松并集中气息' });
+  }
+
+  // — Head resonance
+  if (norm['region-head'] > 0.6) {
+    tips.push({ type:'good', text:'<strong>头腔共鸣</strong>充分，声音穿透力好' });
+  } else if (norm['region-head'] < 0.2 && sp.sampleCount > 30) {
+    tips.push({ type:'warn', text:'<strong>头腔共鸣</strong>偏弱，尝试"哼鸣"练习打开高位共鸣' });
+  }
+
+  // — Nasal
+  if (norm['region-nasal'] > 0.75) {
+    tips.push({ type:'warn', text:'<strong>鼻腔</strong>参与度过高，可能鼻音偏重，注意软腭上提' });
+  } else if (norm['region-nasal'] > 0.35 && norm['region-nasal'] < 0.65) {
+    tips.push({ type:'good', text:'<strong>鼻腔</strong>共鸣适度，音色平衡自然' });
+  }
+
+  // — Oral
+  if (norm['region-oral'] > 0.7) {
+    tips.push({ type:'good', text:'<strong>口腔</strong>共鸣充分，咬字和元音塑造良好' });
+  } else if (norm['region-oral'] < 0.3 && sp.sampleCount > 30) {
+    tips.push({ type:'issue', text:'<strong>口腔</strong>共鸣不足，试着张大嘴巴、放松下颌' });
+  }
+
+  // — Pharynx
+  if (norm['region-pharynx'] > 0.6 && norm['region-oral'] > 0.5) {
+    tips.push({ type:'good', text:'<strong>咽腔</strong>与口腔协调好，声道通畅' });
+  } else if (norm['region-pharynx'] > 0.8 && norm['region-oral'] < 0.4) {
+    tips.push({ type:'warn', text:'<strong>咽腔</strong>偏紧而口腔打开不足，注意"打哈欠"放松喉咙' });
+  }
+
+  // — Chest resonance
+  if (norm['region-chest'] > 0.6) {
+    tips.push({ type:'good', text:'<strong>胸腔共鸣</strong>丰富，声音厚实有力' });
+  } else if (norm['region-chest'] < 0.2 && sp.f0Avg < 250 && sp.sampleCount > 30) {
+    tips.push({ type:'warn', text:'<strong>胸腔共鸣</strong>偏弱，低音区可加强胸声支撑' });
+  }
+
+  // — Diaphragm + Dantian (breath support)
+  const breathSupport = (norm['region-diaphragm'] + norm['region-dantian']) / 2;
+  if (breathSupport > 0.55) {
+    tips.push({ type:'good', text:'<strong>膈肌/丹田</strong>支撑有力，气息稳定' });
+  } else if (breathSupport < 0.25 && sp.sampleCount > 30) {
+    tips.push({ type:'issue', text:'<strong>气息支撑</strong>薄弱！练习腹式呼吸，强化丹田发力' });
+  }
+
+  // — Cricothyroid (pitch control)
+  if (sp.f0Avg > 300 && norm['region-cricothyroid'] < 0.3) {
+    tips.push({ type:'warn', text:'<strong>环甲肌</strong>参与不足，高音时注意用"轻机能"拉伸声带' });
+  }
+  if (sp.f0Avg > 250 && norm['region-cricothyroid'] > 0.6) {
+    tips.push({ type:'good', text:'<strong>环甲肌</strong>积极拉伸，高音控制良好' });
+  }
+
+  // — Tongue tension
+  if (norm['region-tongue'] > 0.8 && norm['region-pharynx'] > 0.7) {
+    tips.push({ type:'warn', text:'<strong>舌根</strong>紧张度偏高，可能压喉；试着舌尖顶下牙放松舌根' });
+  }
+
+  // — Overall balance check
+  const upperRes = (norm['region-head'] + norm['region-nasal']) / 2;
+  const lowerRes = (norm['region-chest'] + norm['region-diaphragm'] + norm['region-dantian']) / 3;
+  if (Math.abs(upperRes - lowerRes) < 0.2 && upperRes > 0.3) {
+    tips.push({ type:'good', text:'上下共鸣<strong>均衡度好</strong>，整体发声通道通畅' });
+  } else if (upperRes > lowerRes + 0.35) {
+    tips.push({ type:'warn', text:'声音偏"头重脚轻"，加强<strong>胸腔与腹部支撑</strong>' });
+  } else if (lowerRes > upperRes + 0.35) {
+    tips.push({ type:'warn', text:'声音偏"闷沉"，尝试<strong>打开高位共鸣</strong>增加明亮度' });
+  }
+
+  // Limit to top 4 most useful tips
+  return tips.slice(0, 4);
+}
+
+// ══════════════════════════════════
+//  Animation
+// ══════════════════════════════════
+
+const smoothedI = {};
+regionIds.forEach(k => smoothedI[k] = 0);
+const SMOOTH = 0.18;
+let lastRankUpdate = 0;
+const RANK_INTERVAL = 500;
+let voiceDetected = false, frameCount = 0;
+
+async function toggleRecording() {
+  if (!isRecording) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true} });
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const hp = audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=55; hp.Q.value=0.7;
+      const bp = audioCtx.createBiquadFilter(); bp.type='peaking'; bp.frequency.value=1000; bp.Q.value=0.5; bp.gain.value=3;
+      analyser = audioCtx.createAnalyser(); analyser.fftSize=8192; analyser.smoothingTimeConstant=0.75;
+      analyserWave = audioCtx.createAnalyser(); analyserWave.fftSize=4096;
+      source = audioCtx.createMediaStreamSource(stream);
+      source.connect(hp); hp.connect(bp); bp.connect(analyser);
+      source.connect(analyserWave);
+      freqBinCount = analyser.frequencyBinCount;
+      dataArray = new Uint8Array(freqBinCount);
+      waveDataArray = new Uint8Array(analyserWave.fftSize);
+      isRecording = true;
+      document.getElementById('btnStart').classList.add('recording');
+      document.getElementById('btnText').textContent = '停止分析';
+      document.getElementById('btnIcon').innerHTML = '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>';
+      document.getElementById('statusBadge').classList.add('active');
+      document.getElementById('statusText').textContent = '实时分析中';
+      document.getElementById('onboardOverlay').classList.add('hidden');
+      animate();
+    } catch(err){ alert('无法访问麦克风：'+err.message); }
+  } else {
+    isRecording=false;
+    if(animFrameId) cancelAnimationFrame(animFrameId);
+    if(stream) stream.getTracks().forEach(t=>t.stop());
+    if(audioCtx) audioCtx.close();
+    document.getElementById('btnStart').classList.remove('recording');
+    document.getElementById('btnText').textContent='开始分析';
+    document.getElementById('btnIcon').innerHTML='<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>';
+    document.getElementById('statusBadge').classList.remove('active');
+    document.getElementById('statusText').textContent='已停止';
+  }
+}
+
+function animate() {
+  if(!isRecording) return;
+  animFrameId = requestAnimationFrame(animate);
+  frameCount++;
+  analyser.getByteFrequencyData(dataArray);
+  analyserWave.getByteTimeDomainData(waveDataArray);
+  const sr=audioCtx.sampleRate, fs=analyser.fftSize;
+  voiceDetected = isVoice(dataArray, waveDataArray, sr, fs);
+  const f0 = voiceDetected ? estimateF0(waveDataArray, sr) : 0;
+
+  const iMap={};
+  let maxI=0.001;
+  regionIds.forEach(id=>{
+    const cfg=regions[id];
+    let raw;
+    if(voiceDetected){
+      raw=getMultiBandEnergy(dataArray,sr,fs,cfg.freqs)*cfg.weight;
+      if(id==='region-vocalcords'){let t=0;for(let i=0;i<dataArray.length;i++)t+=dataArray[i];t/=dataArray.length*255;raw=Math.max(raw,t*1.3);}
+      if(id==='region-diaphragm'||id==='region-dantian'){let t=0;for(let i=0;i<dataArray.length;i++)t+=dataArray[i];t/=dataArray.length*255;raw=Math.max(raw,t*(id==='region-diaphragm'?0.95:0.85));}
+      if(id==='region-cricothyroid'&&f0>200) raw*=1+(f0-200)/400;
+    } else { raw=0; }
+    smoothedI[id]=smoothedI[id]*(1-SMOOTH)+raw*SMOOTH;
+    if(!voiceDetected) smoothedI[id]*=0.92;
+    iMap[id]=smoothedI[id];
+    if(iMap[id]>maxI) maxI=iMap[id];
+  });
+
+  const nF=1/maxI;
+  regionIds.forEach(id=>{
+    const n=Math.pow(Math.min(1,iMap[id]*nF),0.65);
+    const el=document.getElementById(id);
+    if(el){el.setAttribute('fill',intensityToColor(n));el.setAttribute('opacity',String(0.35+n*0.65));}
+    regions[id]._intensity=n;
+  });
+  document.getElementById('vocalCordDetail').setAttribute('opacity',String(0.15+(regions['region-vocalcords']._intensity||0)*0.85));
+  document.getElementById('dantianDetail').setAttribute('opacity',String(0.1+(regions['region-dantian']._intensity||0)*0.7));
+
+  // Speaker
+  const now=Date.now();
+  speakers.forEach(sp=>sp.isSpeaking=false);
+  if(voiceDetected&&f0>0){
+    const sp=findOrCreateSpeaker(f0);
+    if(sp){
+      regionIds.forEach(id=>{sp.cumIntensities[id]=sp.cumIntensities[id]*CUM_DECAY+(regions[id]._intensity||0)*0.05;});
+      if(sp.f0Avg<130){sp.voiceType='低沉男声';sp.voiceDesc='胸腔共鸣为主，浑厚有力';}
+      else if(sp.f0Avg<200){sp.voiceType='中音域';sp.voiceDesc='口腔与咽腔均衡，音色饱满';}
+      else if(sp.f0Avg<300){sp.voiceType='中高音域';sp.voiceDesc='鼻腔与口腔共鸣增多，明亮清澈';}
+      else if(sp.f0Avg<450){sp.voiceType='高音域';sp.voiceDesc='头腔共鸣显著，环甲肌拉伸声带';}
+      else{sp.voiceType='超高音域';sp.voiceDesc='头腔主导，声带高张力状态';}
+    }
+  }
+  speakers=speakers.filter(sp=>now-sp.lastActive<SP_TIMEOUT);
+
+  // Metrics
+  const fmts=voiceDetected?findFormants(dataArray,sr,fs):[];
+  let rmsV=0;for(let i=0;i<waveDataArray.length;i++){const v=(waveDataArray[i]-128)/128;rmsV+=v*v;}
+  rmsV=Math.sqrt(rmsV/waveDataArray.length);
+  const spl=rmsV>0?Math.max(0,20*Math.log10(rmsV)+90):0;
+  const tE=dataArray.reduce((a,b)=>a+b,0);
+  const fE=fmts.reduce((a,f)=>a+f.amp,0);
+  const res=tE>0?Math.min(100,(fE/(tE/dataArray.length))*8):0;
+  const air=Math.min(100,(getMultiBandEnergy(dataArray,sr,fs,[[20,200,1.0]])*100+spl)/1.5);
+
+  document.getElementById('metricF0').innerHTML=(voiceDetected&&f0>0?Math.round(f0):'—')+'<span class="metric-unit"> Hz</span>';
+  document.getElementById('barF0').style.width=(f0>0?Math.min(100,f0/5):0)+'%';
+  document.getElementById('metricSPL').innerHTML=(spl>5?Math.round(spl):'—')+'<span class="metric-unit"> dB</span>';
+  document.getElementById('barSPL').style.width=Math.min(100,spl)+'%';
+  document.getElementById('metricResonance').innerHTML=(voiceDetected?Math.round(res):'—')+'<span class="metric-unit"> %</span>';
+  document.getElementById('barResonance').style.width=res+'%';
+  document.getElementById('metricAirflow').innerHTML=(voiceDetected?Math.round(air):'—')+'<span class="metric-unit"> %</span>';
+  document.getElementById('barAirflow').style.width=air+'%';
+  fmts.sort((a,b)=>a.freq-b.freq);
+  ['f1Val','f2Val','f3Val','f4Val'].forEach((el,i)=>{
+    document.getElementById(el).textContent=(fmts[i]?fmts[i].freq:'—')+' Hz';
+  });
+
+  // Realtime ranking 2Hz
+  if(now-lastRankUpdate>=RANK_INTERVAL){
+    lastRankUpdate=now;
+    const rk=regionIds.map(id=>({id,label:regions[id].label,val:regions[id]._intensity||0})).sort((a,b)=>b.val-a.val);
+    let h='';
+    rk.forEach((r,i)=>{
+      const p=Math.round(r.val*100),c=intensityToColor(r.val);
+      h+=`<div class="rt-rank-row"><span class="rank-num">${i+1}</span><span class="rank-label">${r.label}</span><div class="rank-bar-bg"><div class="rank-bar" style="width:${p}%;background:${c};"></div></div><span class="rank-pct" style="color:${c};">${p}%</span></div>`;
+    });
+    document.getElementById('realtimeRanking').innerHTML=h;
+  }
+
+  // Speaker cards ~6Hz
+  if(frameCount%10===0) renderSpeakerCards();
+  drawSpectrum();
+  drawWaveform();
+}
+
+function renderSpeakerCards() {
+  const ct=document.getElementById('speakerSection');
+  if(!speakers.length){
+    ct.innerHTML='<div class="speaker-card" style="border:1px dashed rgba(255,255,255,0.08);"><div style="color:var(--text-dim);font-size:14px;text-align:center;padding:14px 0;font-style:italic;">等待检测说话人...</div></div>';
+    return;
+  }
+  let html='';
+  speakers.forEach(sp=>{
+    const scl=sp.isSpeaking?'speaking':'', dcl=sp.isSpeaking?'active':'';
+    let maxC=0.001;
+    regionIds.forEach(id=>{if(sp.cumIntensities[id]>maxC) maxC=sp.cumIntensities[id];});
+    const ranked=regionIds.map(id=>({id,label:regions[id].label,val:sp.cumIntensities[id]/maxC})).sort((a,b)=>b.val-a.val).slice(0,7);
+
+    let rkH='';
+    ranked.forEach((r,i)=>{
+      const p=Math.round(r.val*100),c=intensityToColor(r.val);
+      rkH+=`<div class="rank-row"><span class="rank-num">${i+1}</span><span class="rank-label">${r.label}</span><div class="rank-bar-bg"><div class="rank-bar" style="width:${p}%;background:${c};"></div></div><span class="rank-pct" style="color:${c};">${p}%</span></div>`;
+    });
+
+    // Diagnosis
+    const tips = diagnose(sp);
+    let diagH = '';
+    if (tips.length > 0) {
+      diagH = '<div class="diag-section">';
+      tips.forEach(t => {
+        const icon = t.type === 'good' ? '✓' : t.type === 'warn' ? '!' : '✗';
+        diagH += `<div class="diag-row"><div class="diag-icon ${t.type}">${icon}</div><div class="diag-text">${t.text}</div></div>`;
+      });
+      diagH += '</div>';
+    }
+
+    html+=`<div class="speaker-card ${scl}">
+      <div class="speaker-header">
+        <div class="speaker-name"><span class="speaker-dot ${dcl}" style="color:${sp.color};background:${sp.color};"></span>${sp.name} <span style="font-size:12px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;">~${Math.round(sp.f0Avg)} Hz</span></div>
+        <div class="speaker-voice-type">${sp.voiceType}</div>
+      </div>
+      <div class="speaker-voice-desc">${sp.voiceDesc}</div>
+      <div class="speaker-ranking">${rkH}</div>
+      ${diagH}
+    </div>`;
+  });
+  ct.innerHTML=html;
+}
+
+function drawSpectrum(){
+  const cv=document.getElementById('spectrumCanvas'),cx=cv.getContext('2d'),dp=window.devicePixelRatio||1;
+  cv.width=cv.clientWidth*dp;cv.height=cv.clientHeight*dp;cx.scale(dp,dp);
+  const W=cv.clientWidth,H=cv.clientHeight;cx.clearRect(0,0,W,H);
+  const bc=80,bW=W/bc-1,step=Math.max(1,Math.floor(freqBinCount/bc));
+  for(let i=0;i<bc;i++){
+    let s=0;for(let j=0;j<step;j++)s+=dataArray[i*step+j];
+    const avg=s/step/255,h=avg*H*0.88;
+    const g=cx.createLinearGradient(0,H,0,H-h);
+    g.addColorStop(0,'rgba(74,158,255,0.03)');g.addColorStop(0.5,intensityToColor(avg*0.6));g.addColorStop(1,intensityToColor(avg));
+    cx.fillStyle=g;cx.beginPath();cx.rect(i*(bW+1),H-h,bW,h);cx.fill();
+  }
+  if(voiceDetected&&audioCtx){
+    const bs=audioCtx.sampleRate/analyser.fftSize;
+    const vs=85/bs/freqBinCount*bc,ve=4000/bs/freqBinCount*bc;
+    cx.strokeStyle='rgba(74,255,139,0.15)';cx.lineWidth=1;cx.setLineDash([4,4]);
+    cx.strokeRect(vs*(bW+1),0,(ve-vs)*(bW+1),H);cx.setLineDash([]);
+  }
+}
+
+function drawWaveform(){
+  const cv=document.getElementById('waveformCanvas'),cx=cv.getContext('2d'),dp=window.devicePixelRatio||1;
+  cv.width=cv.clientWidth*dp;cv.height=cv.clientHeight*dp;cx.scale(dp,dp);
+  const W=cv.clientWidth,H=cv.clientHeight;cx.clearRect(0,0,W,H);
+  cx.strokeStyle='rgba(255,255,255,0.04)';cx.lineWidth=1;cx.beginPath();cx.moveTo(0,H/2);cx.lineTo(W,H/2);cx.stroke();
+  const len=analyserWave.fftSize,slW=W/len;
+  const col=voiceDetected?'rgba(74,255,139,0.55)':'rgba(255,107,74,0.35)';
+  cx.lineWidth=1.5;cx.strokeStyle=col;cx.beginPath();let x=0;
+  for(let i=0;i<len;i++){const y=(waveDataArray[i]/128)*H/2;if(i===0)cx.moveTo(x,y);else cx.lineTo(x,y);x+=slW;}
+  cx.stroke();
+  const gc=voiceDetected?'rgba(74,255,139,0.08)':'rgba(255,107,74,0.06)';
+  cx.lineWidth=4;cx.strokeStyle=gc;cx.beginPath();x=0;
+  for(let i=0;i<len;i++){const y=(waveDataArray[i]/128)*H/2;if(i===0)cx.moveTo(x,y);else cx.lineTo(x,y);x+=slW;}
+  cx.stroke();
+}
+
+// Tooltip
+const tooltip=document.getElementById('tooltip');
+document.querySelectorAll('.anatomy-region').forEach(el=>{
+  el.addEventListener('mouseenter',()=>{
+    document.getElementById('tooltipTitle').textContent=el.getAttribute('data-name');
+    document.getElementById('tooltipValue').textContent=Math.round((regions[el.id]?._intensity||0)*100)+'%';
+    document.getElementById('tooltipDesc').textContent=el.getAttribute('data-desc');
+    tooltip.classList.add('visible');
+  });
+  el.addEventListener('mousemove',e=>{tooltip.style.left=(e.clientX+15)+'px';tooltip.style.top=(e.clientY-10)+'px';});
+  el.addEventListener('mouseleave',()=>tooltip.classList.remove('visible'));
+});
+</script>
+</body>
+</html>
