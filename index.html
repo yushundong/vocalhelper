@@ -68,8 +68,24 @@
   .anatomy-container{position:relative;display:flex;align-items:center;justify-content:center;border-left:1px solid var(--border);border-right:1px solid var(--border);background:radial-gradient(ellipse at 50% 45%,rgba(74,158,255,0.02),transparent 70%);overflow:hidden;}
   .anatomy-svg-wrap{width:460px;height:700px;position:relative;}
   .anatomy-svg-wrap svg{width:100%;height:100%;}
-  .anatomy-region{transition:fill .05s linear,filter .05s linear;cursor:pointer;}
+  .anatomy-region{cursor:pointer;}
   .anatomy-region:hover{filter:brightness(1.3);}
+
+  /* Pitch display */
+  .pitch-display{
+    position:absolute;top:22px;left:50%;transform:translateX(-50%);z-index:30;
+    text-align:center;pointer-events:none;
+  }
+  .pitch-note{
+    font-family:'JetBrains Mono',monospace;font-size:52px;font-weight:500;
+    color:rgba(255,255,255,0.85);line-height:1;letter-spacing:-2px;
+    transition:opacity .6s;
+  }
+  .pitch-note.dim{opacity:0.08;}
+  .pitch-octave{
+    font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:400;
+    color:rgba(255,255,255,0.4);vertical-align:baseline;letter-spacing:0;
+  }
   .heat-legend{display:flex;align-items:center;gap:8px;}
   .heat-gradient-bar{flex:1;height:8px;border-radius:4px;background:linear-gradient(90deg,#1a1a3e,#2d1b69,#6b2fa0,#d4468a,#ff6b4a,#ffb84a,#fff7a0);}
   .heat-label{font-size:11px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;letter-spacing:1px;}
@@ -206,6 +222,7 @@
         <div class="onboard-text">点击右上角 <strong>「开始分析」</strong> 按钮<br>授权麦克风后发声即可看到实时热力图<br><span style="font-size:14px;color:var(--text-dim);margin-top:8px;display:inline-block;">🛡 人声过滤 · 声乐诊断</span></div>
       </div>
       <div class="pause-overlay" id="pauseOverlay"><div class="pause-overlay-text">⏸ 已暂停分析</div></div>
+      <div class="pitch-display"><span class="pitch-note dim" id="pitchNote">—</span></div>
       <div class="anatomy-svg-wrap">
         <svg viewBox="0 0 480 700" xmlns="http://www.w3.org/2000/svg" id="anatomySvg">
           <defs>
@@ -448,6 +465,21 @@ function diagnose(){
 // ── Smoothing / state ──
 const smoothedI={};regionIds.forEach(k=>smoothedI[k]=0);
 let lastRtRank=0, lastCumRender=0, voiceDetected=false, frameCount=0;
+let lastPitchTime=0, lastPitchNote=''; // hold pitch display
+let lastGoodF0=0, lastGoodF0Time=0; // hold F0 across brief gaps
+let lastVoiceTime=0; // hold voice detection across brief gaps
+
+// Frequency to musical note
+const NOTE_NAMES=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
+function freqToNote(freq){
+  if(freq<30||freq>2000) return null;
+  const midi=12*Math.log2(freq/440)+69;
+  const rounded=Math.round(midi);
+  const note=((rounded%12)+12)%12;
+  const octave=Math.floor(rounded/12)-1;
+  const cents=Math.round((midi-rounded)*100);
+  return{name:NOTE_NAMES[note],octave,cents};
+}
 
 // ── Controls ──
 async function toggleRecording(){
@@ -457,7 +489,7 @@ async function toggleRecording(){
       audioCtx=new(window.AudioContext||window.webkitAudioContext)();
       const hp=audioCtx.createBiquadFilter();hp.type='highpass';hp.frequency.value=55;hp.Q.value=0.7;
       const bp=audioCtx.createBiquadFilter();bp.type='peaking';bp.frequency.value=1000;bp.Q.value=0.5;bp.gain.value=3;
-      analyser=audioCtx.createAnalyser();analyser.fftSize=8192;analyser.smoothingTimeConstant=0.75;
+      analyser=audioCtx.createAnalyser();analyser.fftSize=8192;analyser.smoothingTimeConstant=0.5;
       analyserWave=audioCtx.createAnalyser();analyserWave.fftSize=4096;
       source=audioCtx.createMediaStreamSource(stream);
       source.connect(hp);hp.connect(bp);bp.connect(analyser);source.connect(analyserWave);
@@ -523,8 +555,15 @@ function animate(){
   analyser.getByteFrequencyData(dataArray);
   analyserWave.getByteTimeDomainData(waveDataArray);
   const sr=audioCtx.sampleRate, fs=analyser.fftSize;
-  voiceDetected=isVoice(dataArray,waveDataArray,sr,fs);
-  const f0=voiceDetected?estimateF0(waveDataArray,sr):0;
+  let rawVoice=isVoice(dataArray,waveDataArray,sr,fs);
+  const now=Date.now();
+  if(rawVoice) lastVoiceTime=now;
+  voiceDetected=rawVoice||(now-lastVoiceTime<200); // hold 200ms
+  let f0=estimateF0(waveDataArray,sr);
+  if(!voiceDetected) f0=0;
+  // Hold F0 across brief estimation gaps (up to 400ms)
+  if(f0>0){lastGoodF0=f0;lastGoodF0Time=now;}
+  else if(now-lastGoodF0Time<400&&voiceDetected){f0=lastGoodF0;}
 
   // ── Heatmap: ALWAYS real-time ──
   const iMap={};let maxI=0.001;
@@ -536,19 +575,19 @@ function animate(){
       if(id==='region-diaphragm'||id==='region-dantian'){let t=0;for(let i=0;i<dataArray.length;i++)t+=dataArray[i];t/=dataArray.length*255;raw=Math.max(raw,t*(id==='region-diaphragm'?0.95:0.85));}
       if(id==='region-cricothyroid'&&f0>200)raw*=1+(f0-200)/400;
     }else{raw=0;}
-      // Asymmetric: instant rise, slow fade
-      if(raw>smoothedI[id]) smoothedI[id]=raw; // snap up instantly
-      else smoothedI[id]=smoothedI[id]*0.88+raw*0.12; // gentle fade down
-      if(!voiceDetected)smoothedI[id]*=0.94;
+      // Instant snap up, gentle fade down only
+      if(raw>=smoothedI[id]) smoothedI[id]=raw;
+      else smoothedI[id]=smoothedI[id]*0.85+raw*0.15;
+      if(!voiceDetected)smoothedI[id]*=0.93;
     iMap[id]=smoothedI[id];
     if(iMap[id]>maxI)maxI=iMap[id];
   });
 
   const nF=1/maxI;
   regionIds.forEach(id=>{
-    const n=Math.pow(Math.min(1,iMap[id]*nF),0.65);
+    const n=Math.pow(Math.min(1,iMap[id]*nF),0.55);
     const el=document.getElementById(id);
-    if(el){el.setAttribute('fill',intensityToColor(n));el.setAttribute('opacity',String(0.35+n*0.65));}
+    if(el){el.setAttribute('fill',intensityToColor(n));el.setAttribute('opacity',String(0.3+n*0.7));}
     regions[id]._intensity=n;
   });
   document.getElementById('vocalCordDetail').setAttribute('opacity',String(0.15+(regions['region-vocalcords']._intensity||0)*0.85));
@@ -574,6 +613,20 @@ function animate(){
 
   document.getElementById('metricF0').innerHTML=(voiceDetected&&f0>0?Math.round(f0):'—')+'<span class="metric-unit"> Hz</span>';
   document.getElementById('barF0').style.width=(f0>0?Math.min(100,f0/5):0)+'%';
+
+  // Pitch note display — hold last note for 2s after voice stops
+  const pitchEl=document.getElementById('pitchNote');
+  if(f0>0){
+    const nt=freqToNote(f0);
+    if(nt){
+      lastPitchNote=nt.name+'<span class="pitch-octave">'+nt.octave+'</span>';
+      lastPitchTime=now;
+      pitchEl.innerHTML=lastPitchNote;
+      pitchEl.classList.remove('dim');
+    }
+  }else if(now-lastPitchTime>2000){
+    pitchEl.classList.add('dim');
+  }
   document.getElementById('metricSPL').innerHTML=(spl>5?Math.round(spl):'—')+'<span class="metric-unit"> dB</span>';
   document.getElementById('barSPL').style.width=Math.min(100,spl)+'%';
   document.getElementById('metricResonance').innerHTML=(voiceDetected?Math.round(res):'—')+'<span class="metric-unit"> %</span>';
@@ -584,7 +637,6 @@ function animate(){
   ['f1Val','f2Val','f3Val','f4Val'].forEach((el,i)=>{document.getElementById(el).textContent=(fmts[i]?fmts[i].freq:'—')+' Hz';});
 
   // ── Realtime ranking 2Hz ──
-  const now=Date.now();
   if(now-lastRtRank>=500){
     lastRtRank=now;
     const rk=regionIds.map(id=>({id,label:regions[id].label,val:regions[id]._intensity||0})).sort((a,b)=>b.val-a.val);
